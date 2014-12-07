@@ -1,73 +1,70 @@
-import Music.Prelude.Basic hiding  (Interval)
-import Music.Pitch.Common.Interval (Interval)
+import Music.Prelude
 
 main :: IO ()
-main = openLilypond . showAnnotations' ""
-     . intervalAnnotations (subjectDiff subject)
-     . scat $ map reify subject
+main = do
+  -- writeLilypond "test.ly" cantus
+  return ()
 
-subject :: [BasicPitch]
-subject = [c, d, f, e, f, g, a, g, e, d, c]
+type Voice' = Voice Pitch
 
-subjectDiff :: CantusFirmus -> [Interval]
-subjectDiff = zipWith (.-.) (tail subject)
+cantus :: Voice' 
+cantus = [d, a, g, f, e, d, f, e, d] ^. voice
+         
+intervalsV :: Getter Voice' [Interval]
+intervalsV = to (\v -> zipWith (.-.) (tail $ v ^. valuesV) (v ^. valuesV))
 
-reify :: BasicPitch -> Score BasicNote
-reify = (`up` c) . (.-. c)
+allWholeNotes :: Voice' -> Bool
+allWholeNotes v = all (== 1) (v ^. durationsV)
 
-intervalAnnotations :: [Interval] -> (Score BasicNote -> Score BasicNote)
-intervalAnnotations = foldr1 (.) . zipWith notate (map spanify [0..])
+voiceLength :: Voice' -> Bool
+voiceLength v = (between 8 16) . length $ v ^. notes
+
+between a b x = a <= x && x <= b
+
+
+horizontalIntervals :: Voice' -> [Interval]
+horizontalIntervals v = zipWith (.-.) (tail ns) ns
+    where ns = v ^. valuesV
+
+permittedMelodicIntervals :: Voice' -> Bool
+permittedMelodicIntervals v = all (\i -> abs i `elem` permitted) (horizontalIntervals v)
   where
-    spanify :: Duration -> Span
-    spanify t = (origin .+^ t) >-> 1
-
-    notate :: Span -> Interval -> (Score BasicNote -> Score BasicNote)
-    notate s n = annotateSpan s ("       " ++ showIntervalName n)
+    permitted = [ perfect unison, major second, minor second
+                , major third,    minor third,  perfect fourth
+                , perfect fifth,  major sixth,  minor sixth
+                , perfect octave]
  
-    showIntervalName = filter (/= '_') . show
-
-type CantusFirmus = [BasicPitch]
-
-cf_Lunghezza :: [BasicPitch] -> Bool
-cf_Lunghezza = (between 8 16) . length
-
-between s t x = s <= x && x <= t
-
-cf_IntervalliOrizzontali :: CantusFirmus -> Bool
-cf_IntervalliOrizzontali cf = all (`elem` consentiti) $ subjectDiff cf
-  where
-    consentiti = [ perfect unison, major second, minor second, major third, minor third
-                 , perfect fourth, perfect fifth, major sixth, minor sixth, perfect octave]
-
-cf_EscursioneMassima :: CantusFirmus -> Bool
-cf_EscursioneMassima cf = escursione <= 10
+maxAmbitus :: Voice' -> Bool
+maxAmbitus v = escursione <= _M10
   where escursione = maximum cf .-. minimum cf
+        cf = v ^. valuesV
 
-cf_Climax :: CantusFirmus -> Bool
-cf_Climax cf = (==1) . length . filter (== climax) $ cf
-  where climax = maximum cf
+cf_Climax :: Voice' -> Bool
+cf_Climax cf = (==1) . length . filter (== climax) $ cf ^. valuesV
+  where climax = maximum $ cf ^. valuesV
 
-cf_NumberOfLeaps :: CantusFirmus -> Bool
+cf_NumberOfLeaps :: Voice' -> Bool
 cf_NumberOfLeaps cf = (between 2 4) leaps
-  where leaps = length . filter isLeap $ subjectDiff cf
+  where leaps = length . filter isLeap $ cf ^. intervalsV
 
 -- Controlla che non ci siano piu' di due salti piu' grandi di una quarta
-cf_LeapsBiggerThanFourth :: CantusFirmus -> Bool
-cf_LeapsBiggerThanFourth = (<= 2) . length . filter (> fourth) . map number . subjectDiff
+cf_LeapsBiggerThanFourth :: Voice' -> Bool
+cf_LeapsBiggerThanFourth v = (<= 2) . length . filter (> fourth) . map number $ v ^. intervalsV
 
 -- salti piu' grandi di una terza dovrebbero essere seguiti da
 -- un'inversione del movimento, MEGLIO SE PER GRADO CONGIUNTO TODO!!!
-cf_LeapThenInversion :: CantusFirmus -> Bool
+cf_LeapThenInversion :: Voice' -> Bool
 cf_LeapThenInversion cf = all inversione intornoSalto
   where 
-    intornoSalto = filter ((>third) . number . fst) $ zip (subjectDiff cf) (tail $ subjectDiff cf)
+    intornoSalto = filter ((>third) . number . fst) $ zip (cf ^. intervalsV) (tail $ cf ^. intervalsV)
     inversione (a,b) = if a >= perfect unison then b <= perfect unison
                                              else b >= perfect unison
 
 -- No consecutive leaps in the same direction
-cf_NoConsecutiveLeapsSameDirection :: CantusFirmus -> Bool
+cf_NoConsecutiveLeapsSameDirection :: Voice' -> Bool
 cf_NoConsecutiveLeapsSameDirection cf = all inversione intornoSalto
   where 
-    intornoSalto = filter ((>= third) . number . fst) $ zip (subjectDiff cf) (tail $ subjectDiff cf)
+    intornoSalto = filter ((>= third) . number . fst) $ zip (cf ^. intervalsV) (tail $ cf ^. intervalsV)
     inversione (a,b) = if a >= perfect unison then b <= perfect unison
                                              else b >= perfect unison
+
