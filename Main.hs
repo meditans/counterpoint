@@ -1,4 +1,5 @@
 import Music.Prelude
+import Utils
 
 main :: IO ()
 main = do
@@ -10,29 +11,25 @@ type Voice' = Voice Pitch
 cantus :: Voice' 
 cantus = [d, a, g, f, e, d, f, e, d] ^. voice
          
-intervalsV :: Getter Voice' [Interval]
-intervalsV = to (\v -> zipWith (.-.) (tail $ v ^. valuesV) (v ^. valuesV))
-
 allWholeNotes :: Voice' -> Bool
 allWholeNotes v = all (== 1) (v ^. durationsV)
 
 voiceLength :: Voice' -> Bool
-voiceLength v = (between 8 16) . length $ v ^. notes
+voiceLength v = (between 8 16) (v ^. notes . to length)
 
-between a b x = a <= x && x <= b
-
-
-horizontalIntervals :: Voice' -> [Interval]
-horizontalIntervals v = zipWith (.-.) (tail ns) ns
+intervals :: Voice' -> [Interval]
+intervals v = zipWith (.-.) (tail ns) ns
     where ns = v ^. valuesV
 
-permittedMelodicIntervals :: Voice' -> Bool
-permittedMelodicIntervals v = all (\i -> abs i `elem` permitted) (horizontalIntervals v)
-  where
-    permitted = [ perfect unison, major second, minor second
-                , major third,    minor third,  perfect fourth
-                , perfect fifth,  major sixth,  minor sixth
-                , perfect octave]
+permittedMelodicIntervals :: [Interval]
+permittedMelodicIntervals = [ perfect unison, major second, minor second
+                            , major third,    minor third,  perfect fourth
+                            , perfect fifth,  major sixth,  minor sixth
+                            , perfect octave]
+
+correctMelodicIntervals :: Voice' -> Bool
+correctMelodicIntervals v = all (`elem` permittedMelodicIntervals)
+                                (map abs $ intervals v)
  
 maxAmbitus :: Voice' -> Bool
 maxAmbitus v = escursione <= _M10
@@ -40,31 +37,40 @@ maxAmbitus v = escursione <= _M10
         cf = v ^. valuesV
 
 cf_Climax :: Voice' -> Bool
-cf_Climax cf = (==1) . length . filter (== climax) $ cf ^. valuesV
-  where climax = maximum $ cf ^. valuesV
+cf_Climax cf = (==1) . count (== climax) $ cf ^. valuesV
+    where climax = cf ^. valuesV . to maximum
 
-cf_NumberOfLeaps :: Voice' -> Bool
-cf_NumberOfLeaps cf = (between 2 4) leaps
-  where leaps = length . filter isLeap $ cf ^. intervalsV
+numberOfLeaps :: Voice' -> Bool
+numberOfLeaps = (between 2 4) . leaps
+  where leaps = count (> second) . map number . intervals
+
+-- Diciamo che invece il punto e' che voglio focalizzare tutti i leap,
+-- e contarli in un secondo momento. Come faccio a fare questo?
 
 -- Controlla che non ci siano piu' di due salti piu' grandi di una quarta
 cf_LeapsBiggerThanFourth :: Voice' -> Bool
-cf_LeapsBiggerThanFourth v = (<= 2) . length . filter (> fourth) . map number $ v ^. intervalsV
+cf_LeapsBiggerThanFourth v = (<= 2) . count (> fourth) . map number $ intervals $ v
 
 -- salti piu' grandi di una terza dovrebbero essere seguiti da
 -- un'inversione del movimento, MEGLIO SE PER GRADO CONGIUNTO TODO!!!
 cf_LeapThenInversion :: Voice' -> Bool
 cf_LeapThenInversion cf = all inversione intornoSalto
   where 
-    intornoSalto = filter ((>third) . number . fst) $ zip (cf ^. intervalsV) (tail $ cf ^. intervalsV)
+    intornoSalto = filter ((>third) . number . fst) . (zip <*> tail) . intervals $ cf
     inversione (a,b) = if a >= perfect unison then b <= perfect unison
-                                             else b >= perfect unison
+                                              else b >= perfect unison
 
 -- No consecutive leaps in the same direction
 cf_NoConsecutiveLeapsSameDirection :: Voice' -> Bool
-cf_NoConsecutiveLeapsSameDirection cf = all inversione intornoSalto
-  where 
-    intornoSalto = filter ((>= third) . number . fst) $ zip (cf ^. intervalsV) (tail $ cf ^. intervalsV)
-    inversione (a,b) = if a >= perfect unison then b <= perfect unison
-                                             else b >= perfect unison
+cf_NoConsecutiveLeapsSameDirection cf = undefined
 
+-- Il vero punto di questa funzione e': come posso otterenere una
+-- lista di intervalli consecutivi? Di salti consecutivi? Qual e' il
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+-- Dobbiamo esplorare [(Aligned (Voice a))]. Questo ci permette
+-- infatti anche un orientamento temporale. Allora
